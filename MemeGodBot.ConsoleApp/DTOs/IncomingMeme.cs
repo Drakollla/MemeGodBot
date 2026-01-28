@@ -1,0 +1,17 @@
+﻿using MemeGodBot.ConsoleApp.Enums;
+
+namespace MemeGodBot.ConsoleApp.DTOs
+{
+    public class IncomingMeme
+    {
+        public required string SourceId { get; set; }
+
+        public required MemeSource SourceType { get; set; }
+
+        public required string ChannelId { get; set; }
+
+        public string FileExtension { get; set; } = ".jpg";
+
+        public required Func<Stream, Task> DownloadAction { get; set; }
+    }
+}
