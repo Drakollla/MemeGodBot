@@ -1,34 +1,47 @@
 ﻿using MemeGodBot.ConsoleApp;
 using MemeGodBot.ConsoleApp.Models.Context;
 using MemeGodBot.ConsoleApp.Services;
+using MemeGodBot.ConsoleApp.Workers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Qdrant.Client;
+using Qdrant.Client.Grpc;
 
 var builder = Host.CreateApplicationBuilder(args);
 
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 var clipPath = builder.Configuration["Models:ClipPath"];
 
-builder.Services.AddDbContext<MemeDbContext>(options =>
-    options.UseSqlServer(connectionString));
+builder.Services.AddSingleton(sp => new ClipEmbedder(clipPath));
 
 builder.Services.AddSingleton(sp =>
     new QdrantClient(builder.Configuration["Qdrant:Host"],
                      int.Parse(builder.Configuration["Qdrant:Port"])));
 
-builder.Services.AddSingleton(sp => new ClipEmbedder(clipPath));
+builder.Services.AddDbContext<MemeDbContext>(options =>
+    options.UseSqlServer(connectionString));
+
 builder.Services.AddScoped<MemeService>();
+builder.Services.AddHostedService<TelegramWorker>();
 
 using IHost host = builder.Build();
 
 using (var scope = host.Services.CreateScope())
 {
-    var services = scope.ServiceProvider;
-    var context = services.GetRequiredService<MemeDbContext>();
-    var embedder = services.GetRequiredService<ClipEmbedder>();
+    var qdrantClient = scope.ServiceProvider.GetRequiredService<QdrantClient>();
+    var collections = await qdrantClient.ListCollectionsAsync();
+    
+    if (!collections.Contains("memes"))
+    {
+        await qdrantClient.CreateCollectionAsync("memes",
+            new VectorParams
+            {
+                Size = 512,
+                Distance = Distance.Cosine
+            });
+    }
 }
 
 await host.RunAsync();
