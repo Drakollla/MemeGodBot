@@ -1,6 +1,6 @@
 ﻿using System.ComponentModel.DataAnnotations;
 
-namespace MemeGodBot.ConsoleApp.Models
+namespace MemeGodBot.ConsoleApp.Models.Entities
 {
     public class UserMemeReaction
     {

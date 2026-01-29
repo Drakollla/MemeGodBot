@@ -1,5 +1,4 @@
-﻿using MemeGodBot.ConsoleApp;
-using MemeGodBot.ConsoleApp.Models.Context;
+﻿using MemeGodBot.ConsoleApp.Models.Context;
 using MemeGodBot.ConsoleApp.Services;
 using MemeGodBot.ConsoleApp.Workers;
 using Microsoft.EntityFrameworkCore;
@@ -14,7 +13,7 @@ var builder = Host.CreateApplicationBuilder(args);
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 var clipPath = builder.Configuration["Models:ClipPath"];
 
-builder.Services.AddSingleton(sp => new ClipEmbedder(clipPath));
+builder.Services.AddSingleton(sp => new ImageEncoder(clipPath));
 
 builder.Services.AddSingleton(sp =>
     new QdrantClient(builder.Configuration["Qdrant:Host"],
@@ -23,8 +22,10 @@ builder.Services.AddSingleton(sp =>
 builder.Services.AddDbContext<MemeDbContext>(options =>
     options.UseSqlServer(connectionString));
 
-builder.Services.AddScoped<MemeService>();
-builder.Services.AddHostedService<TelegramWorker>();
+builder.Services.AddScoped<MemeManager>();
+builder.Services.AddHostedService<TelegramCollector>();
+builder.Services.AddScoped<MemeBotUiService>();
+builder.Services.AddHostedService<TelegramBotListener>();
 
 using IHost host = builder.Build();
 
@@ -32,7 +33,7 @@ using (var scope = host.Services.CreateScope())
 {
     var qdrantClient = scope.ServiceProvider.GetRequiredService<QdrantClient>();
     var collections = await qdrantClient.ListCollectionsAsync();
-    
+
     if (!collections.Contains("memes"))
     {
         await qdrantClient.CreateCollectionAsync("memes",

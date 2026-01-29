@@ -1,4 +1,5 @@
-﻿using Microsoft.EntityFrameworkCore;
+﻿using MemeGodBot.ConsoleApp.Models.Entities;
+using Microsoft.EntityFrameworkCore;
 
 namespace MemeGodBot.ConsoleApp.Models.Context
 {

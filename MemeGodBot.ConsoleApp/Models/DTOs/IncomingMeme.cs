@@ -1,6 +1,6 @@
-﻿using MemeGodBot.ConsoleApp.Enums;
+﻿using MemeGodBot.ConsoleApp.Models.Enums;
 
-namespace MemeGodBot.ConsoleApp.DTOs
+namespace MemeGodBot.ConsoleApp.Models.DTOs
 {
     public class IncomingMeme
     {

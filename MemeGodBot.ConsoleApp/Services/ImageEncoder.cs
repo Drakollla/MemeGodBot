@@ -4,14 +4,14 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 
-namespace MemeGodBot.ConsoleApp
+namespace MemeGodBot.ConsoleApp.Services
 {
-    public class ClipEmbedder : IDisposable
+    public class ImageEncoder : IDisposable
     {
         private readonly InferenceSession _session;
         private const int ImageSize = 224;
 
-        public ClipEmbedder(string modelPath)
+        public ImageEncoder(string modelPath)
         {
             _session = new InferenceSession(modelPath);
         }

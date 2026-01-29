@@ -1,4 +1,4 @@
-﻿namespace MemeGodBot.ConsoleApp.Enums
+﻿namespace MemeGodBot.ConsoleApp.Models.Enums
 {
     public enum MemeSource
     {
