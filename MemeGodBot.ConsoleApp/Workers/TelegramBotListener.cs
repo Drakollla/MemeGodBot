@@ -1,8 +1,9 @@
-﻿using MemeGodBot.ConsoleApp.Services;
-using Microsoft.Extensions.Configuration;
+﻿using MemeGodBot.ConsoleApp.Configurations;
+using MemeGodBot.ConsoleApp.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Telegram.Bot;
 using Telegram.Bot.Polling;
 using Telegram.Bot.Types;
@@ -12,28 +13,26 @@ namespace MemeGodBot.ConsoleApp.Workers
 {
     public class TelegramBotListener : BackgroundService
     {
+        private readonly BotSettings _settings;
         private readonly ILogger<TelegramBotListener> _logger;
-        private readonly IConfiguration _config;
         private readonly IServiceScopeFactory _scopeFactory;
         private TelegramBotClient? _botClient;
 
-        public TelegramBotListener(ILogger<TelegramBotListener> logger, 
-                                 IConfiguration config, 
-                                 IServiceScopeFactory scopeFactory)
+        public TelegramBotListener(IOptions<BotSettings> botOptions,
+                                   ILogger<TelegramBotListener> logger,
+                                   IServiceScopeFactory scopeFactory)
         {
             _logger = logger;
-            _config = config;
+            _settings = botOptions.Value;
             _scopeFactory = scopeFactory;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            var token = _config["Bot:Token"];
-            
-            if (string.IsNullOrWhiteSpace(token))
+            if (string.IsNullOrWhiteSpace(_settings.Token))
                 return;
 
-            _botClient = new TelegramBotClient(token);
+            _botClient = new TelegramBotClient(_settings.Token);
 
             _botClient.StartReceiving(
                 updateHandler: HandleBotUpdateAsync,
@@ -75,7 +74,7 @@ namespace MemeGodBot.ConsoleApp.Workers
                 _logger.LogError(ex, "Ошибка в боте");
             }
         }
-        
+
         private Task HandleErrorAsync(ITelegramBotClient bot, Exception ex, HandleErrorSource source, CancellationToken ct)
         {
             _logger.LogError(ex, "Ошибка Telegram Bot API");

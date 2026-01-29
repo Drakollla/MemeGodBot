@@ -1,4 +1,5 @@
-﻿using Microsoft.ML.OnnxRuntime;
+﻿using MemeGodBot.ConsoleApp.Abstractions;
+using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -6,7 +7,7 @@ using SixLabors.ImageSharp.Processing;
 
 namespace MemeGodBot.ConsoleApp.Services
 {
-    public class ImageEncoder : IDisposable
+    public class ImageEncoder : IImageEncoder, IDisposable
     {
         private readonly InferenceSession _session;
         private const int ImageSize = 224;

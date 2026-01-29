@@ -1,30 +1,41 @@
-﻿using MemeGodBot.ConsoleApp.Models.Context;
+﻿using MemeGodBot.ConsoleApp.Abstractions;
+using MemeGodBot.ConsoleApp.Configurations;
+using MemeGodBot.ConsoleApp.Models.Context;
 using MemeGodBot.ConsoleApp.Models.DTOs;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Qdrant.Client;
 using Qdrant.Client.Grpc;
 
 namespace MemeGodBot.ConsoleApp.Services
 {
-    public class MemeManager
+    public class MemeManager : IMemeManager
     {
         private readonly MemeDbContext _db;      
         private readonly QdrantClient _qdrant;   
-        private readonly ImageEncoder _embedder;
+        private readonly IImageEncoder _encoder;
         private readonly ILogger<MemeManager> _logger;
+        private readonly QdrantSettings _settings;
         private readonly string _baseDownloadPath;
 
         public MemeManager(MemeDbContext db,
                            QdrantClient qdrant,
-                           ImageEncoder embedder,
-                           ILogger<MemeManager> logger)
+                           ILogger<MemeManager> logger,
+                           IImageEncoder encoder,
+                           IOptions<QdrantSettings> qdrantOptions,
+                           IOptions<StorageSettings> storageOptions)
         {
             _db = db;
             _qdrant = qdrant;
-            _embedder = embedder;
+            _encoder = encoder;
+            _settings = qdrantOptions.Value;
             _logger = logger;
-            _baseDownloadPath = Path.Combine(Directory.GetCurrentDirectory(), "Downloads");
+
+            _baseDownloadPath = Path.GetFullPath(storageOptions.Value.MemesFolder);
+
+            if (!Directory.Exists(_baseDownloadPath))
+                Directory.CreateDirectory(_baseDownloadPath);
         }
 
         public async Task ProcessIncomingMemeAsync(IncomingMeme meme, CancellationToken ct)
@@ -42,7 +53,7 @@ namespace MemeGodBot.ConsoleApp.Services
 
             try
             {
-                var vector = _embedder.GenerateEmbedding(localPath);
+                var vector = _encoder.GenerateEmbedding(localPath);
                 var duplicates = await _qdrant.SearchAsync("memes", vector, limit: 1);
                 
                 if (duplicates.Any() && duplicates[0].Score > 0.98f)
@@ -54,7 +65,7 @@ namespace MemeGodBot.ConsoleApp.Services
 
                 ulong qdrantId = (ulong)meme.SourceId.GetHashCode();
                 
-                await _qdrant.UpsertAsync("memes", new[]
+                await _qdrant.UpsertAsync(_settings.CollectionName, new[]
                 {
                     new PointStruct
                     {
@@ -78,8 +89,8 @@ namespace MemeGodBot.ConsoleApp.Services
 
         public async Task<(ulong Id, string Path)> GetRecommendationAsync(long userId)
         {
-            // 1. Получаем историю реакций пользователя из SQL Server
             var reactions = await _db.Reactions
+                .AsNoTracking()
                 .Where(r => r.UserId == userId)
                 .ToListAsync();
 
@@ -87,26 +98,23 @@ namespace MemeGodBot.ConsoleApp.Services
             var dislikes = reactions.Where(r => !r.IsLiked).Select(r => (PointId)(ulong)r.QdrantMemeId).ToList();
             var seenPointIds = reactions.Select(r => (PointId)(ulong)r.QdrantMemeId).ToList();
 
-            // 2. Создаем фильтр, чтобы не показывать мемы, которые юзер уже видел
             Filter? filter = null;
             if (seenPointIds.Any())
             {
                 filter = new Filter();
                 var hasIdCondition = new HasIdCondition();
-                hasIdCondition.HasId.AddRange(seenPointIds); // То самое свойство, которое подсказала IDE
+                hasIdCondition.HasId.AddRange(seenPointIds);
 
                 filter.MustNot.Add(new Condition { HasId = hasIdCondition });
             }
 
-            // 3. Логика "Холодного старта": если лайков мало (меньше 3), выдаем случайные мемы
             if (likes.Count < 3)
             {
-                var scrollResponse = await _qdrant.ScrollAsync("memes", limit: 20, filter: filter);
+                var scrollResponse = await _qdrant.ScrollAsync(_settings.CollectionName, limit: 20, filter: filter);
 
                 if (scrollResponse.Result == null || !scrollResponse.Result.Any())
                     throw new Exception("База мемов пуста или все мемы уже просмотрены!");
 
-                // Выбираем один случайный из полученных
                 var randomMeme = scrollResponse.Result.OrderBy(_ => Guid.NewGuid()).FirstOrDefault();
                 
                 if (randomMeme == null)
@@ -115,24 +123,20 @@ namespace MemeGodBot.ConsoleApp.Services
                 return (randomMeme.Id.Num, randomMeme.Payload["path"].StringValue);
             }
 
-            // 4. "Умная" рекомендация на основе векторов лайков и дизлайков
-            var recs = await _qdrant.RecommendAsync(
-                "memes",
+            var recs = await _qdrant.RecommendAsync(_settings.CollectionName,
                 positive: likes,
                 negative: dislikes,
                 filter: filter,
                 limit: 1
             );
 
-            // Если рекомендация что-то нашла
             if (recs != null && recs.Any())
             {
                 var result = recs.First();
                 return (result.Id.Num, result.Payload["path"].StringValue);
             }
 
-            // Запасной вариант (fallback), если рекомендация не сработала
-            var fallback = await _qdrant.ScrollAsync("memes", limit: 1, filter: filter);
+            var fallback = await _qdrant.ScrollAsync(_settings.CollectionName, limit: 1, filter: filter);
             var fallbackMeme = fallback.Result?.FirstOrDefault();
 
             if (fallbackMeme == null) 

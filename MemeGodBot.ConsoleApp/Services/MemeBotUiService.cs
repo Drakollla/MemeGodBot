@@ -1,4 +1,5 @@
-﻿using MemeGodBot.ConsoleApp.Models;
+﻿using MemeGodBot.ConsoleApp.Abstractions;
+using MemeGodBot.ConsoleApp.Models;
 using MemeGodBot.ConsoleApp.Models.Context;
 using MemeGodBot.ConsoleApp.Models.Entities;
 using Microsoft.EntityFrameworkCore;
@@ -11,15 +12,15 @@ namespace MemeGodBot.ConsoleApp.Services
 {
     public class MemeBotUiService
     {
-        private readonly MemeManager _memeService;
+        private readonly IMemeManager _memeManager;
         private readonly MemeDbContext _db;
         private readonly ILogger<MemeBotUiService> _logger;
 
-        public MemeBotUiService(MemeManager memeService, 
-                              MemeDbContext db, 
-                              ILogger<MemeBotUiService> logger)
+        public MemeBotUiService(IMemeManager memeManager, 
+                                MemeDbContext db, 
+                                ILogger<MemeBotUiService> logger)
         {
-            _memeService = memeService;
+            _memeManager = memeManager;
             _db = db;
             _logger = logger;
         }
@@ -56,7 +57,7 @@ namespace MemeGodBot.ConsoleApp.Services
         {
             try
             {
-                var (memeId, path) = await _memeService.GetRecommendationAsync(chatId);
+                var (memeId, path) = await _memeManager.GetRecommendationAsync(chatId);
 
                 if (string.IsNullOrEmpty(path) || memeId == 0)
                 {
