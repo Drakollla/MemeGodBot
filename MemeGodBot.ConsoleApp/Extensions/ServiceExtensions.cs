@@ -18,6 +18,7 @@ namespace MemeGodBot.ConsoleApp.Extensions
             services.Configure<BotSettings>(config.GetSection("Bot"));
             services.Configure<ModelSettings>(config.GetSection("Models"));
             services.Configure<StorageSettings>(config.GetSection("Storage"));
+            services.Configure<RecommendationSettings>(config.GetSection("Recommendation"));
 
             services.AddSingleton<IImageEncoder>(sp =>
             {

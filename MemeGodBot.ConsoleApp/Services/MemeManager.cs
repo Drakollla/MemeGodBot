@@ -18,12 +18,14 @@ namespace MemeGodBot.ConsoleApp.Services
         private readonly ILogger<MemeManager> _logger;
         private readonly QdrantSettings _settings;
         private readonly string _baseDownloadPath;
+        private readonly RecommendationSettings _recSettings;
 
         public MemeManager(MemeDbContext db,
                            QdrantClient qdrant,
                            ILogger<MemeManager> logger,
                            IImageEncoder encoder,
                            IOptions<QdrantSettings> qdrantOptions,
+                           IOptions<RecommendationSettings> recOptions,
                            IOptions<StorageSettings> storageOptions)
         {
             _db = db;
@@ -31,7 +33,7 @@ namespace MemeGodBot.ConsoleApp.Services
             _encoder = encoder;
             _settings = qdrantOptions.Value;
             _logger = logger;
-
+            _recSettings = recOptions.Value;
             _baseDownloadPath = Path.GetFullPath(storageOptions.Value.MemesFolder);
 
             if (!Directory.Exists(_baseDownloadPath))
@@ -108,41 +110,34 @@ namespace MemeGodBot.ConsoleApp.Services
                 filter.MustNot.Add(new Condition { HasId = hasIdCondition });
             }
 
-            if (likes.Count < 3)
+            if (likes.Count < _recSettings.MinLikesToStart)
             {
-                var scrollResponse = await _qdrant.ScrollAsync(_settings.CollectionName, limit: 20, filter: filter);
-
-                if (scrollResponse.Result == null || !scrollResponse.Result.Any())
-                    throw new Exception("База мемов пуста или все мемы уже просмотрены!");
-
-                var randomMeme = scrollResponse.Result.OrderBy(_ => Guid.NewGuid()).FirstOrDefault();
-                
-                if (randomMeme == null)
-                    return (0, string.Empty);
-
-                return (randomMeme.Id.Num, randomMeme.Payload["path"].StringValue);
+                _logger.LogInformation("User {Id} has few likes. Giving random.", userId);
+                return await GetRandomMeme(filter);
             }
 
-            var recs = await _qdrant.RecommendAsync(_settings.CollectionName,
+            if (Random.Shared.Next(1, 101) <= _recSettings.RandomFactorPercent)
+            {
+                _logger.LogInformation("Exploration mode: giving random meme to user {Id}.", userId);
+                return await GetRandomMeme(filter);
+            }
+
+            _logger.LogInformation("Exploitation mode: calculating vector recommendation for {Id}.", userId);
+            var recs = await _qdrant.RecommendAsync(
+                _settings.CollectionName,
                 positive: likes,
                 negative: dislikes,
                 filter: filter,
                 limit: 1
             );
 
-            if (recs != null && recs.Any())
+            if (recs.Any())
             {
                 var result = recs.First();
                 return (result.Id.Num, result.Payload["path"].StringValue);
             }
 
-            var fallback = await _qdrant.ScrollAsync(_settings.CollectionName, limit: 1, filter: filter);
-            var fallbackMeme = fallback.Result?.FirstOrDefault();
-
-            if (fallbackMeme == null) 
-                return (0, string.Empty);
-
-            return (fallbackMeme.Id.Num, fallbackMeme.Payload["path"].StringValue);
+            return await GetRandomMeme(filter);
         }
 
         private async Task<string?> DownloadMemeAsync(IncomingMeme meme)
@@ -166,6 +161,18 @@ namespace MemeGodBot.ConsoleApp.Services
                 _logger.LogError(ex, "Ошибка скачивания мема {SourceId}", meme.SourceId);
                 return null;
             }
+        }
+
+        private async Task<(ulong Id, string Path)> GetRandomMeme(Filter? filter)
+        {
+            var scroll = await _qdrant.ScrollAsync(_settings.CollectionName, limit: 50, filter: filter);
+            
+            if (scroll.Result == null || !scroll.Result.Any()) 
+                return (0, "");
+
+            var randomMeme = scroll.Result.OrderBy(_ => Guid.NewGuid()).First();
+            
+            return (randomMeme.Id.Num, randomMeme.Payload["path"].StringValue);
         }
     }
 }

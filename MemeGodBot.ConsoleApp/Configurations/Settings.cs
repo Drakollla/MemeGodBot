@@ -35,4 +35,11 @@
         public int RefreshIntervalMinutes { get; set; } = 15;
         public string UserAgent { get; set; } = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
     }
+
+    public class RecommendationSettings
+    {
+        public int MinLikesToStart { get; set; } = 1;
+        public int RandomFactorPercent { get; set; } = 20;
+        public int RandomPoolSize { get; set; } = 50;
+    }
 }
