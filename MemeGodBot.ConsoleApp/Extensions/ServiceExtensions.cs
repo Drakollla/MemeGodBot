@@ -1,6 +1,7 @@
 ﻿using MemeGodBot.ConsoleApp.Abstractions;
 using MemeGodBot.ConsoleApp.Configurations;
 using MemeGodBot.ConsoleApp.Services;
+using MemeGodBot.ConsoleApp.Workers;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -32,6 +33,10 @@ namespace MemeGodBot.ConsoleApp.Extensions
 
             services.AddScoped<IMemeManager, MemeManager>();
             services.AddScoped<MemeBotUiService>();
+
+            services.Configure<RedditSettings>(config.GetSection("Reddit"));
+            services.AddHttpClient();
+            services.AddHostedService<RedditCollector>();
 
             return services;
         }
