@@ -1,8 +1,5 @@
 ﻿using MemeGodBot.ConsoleApp.Abstractions;
-using MemeGodBot.ConsoleApp.Models;
-using MemeGodBot.ConsoleApp.Models.Context;
-using MemeGodBot.ConsoleApp.Models.Entities;
-using Microsoft.EntityFrameworkCore;
+using MemeGodBot.ConsoleApp.Helpers;
 using Microsoft.Extensions.Logging;
 using Telegram.Bot;
 using Telegram.Bot.Types;
@@ -13,15 +10,15 @@ namespace MemeGodBot.ConsoleApp.Services
     public class MemeBotUiService
     {
         private readonly IMemeManager _memeManager;
-        private readonly MemeDbContext _db;
+        private readonly IReactionService _reactionService;
         private readonly ILogger<MemeBotUiService> _logger;
 
-        public MemeBotUiService(IMemeManager memeManager, 
-                                MemeDbContext db, 
+        public MemeBotUiService(IMemeManager memeManager,
+                                IReactionService reactionService,
                                 ILogger<MemeBotUiService> logger)
         {
             _memeManager = memeManager;
-            _db = db;
+            _reactionService = reactionService;
             _logger = logger;
         }
 
@@ -29,17 +26,7 @@ namespace MemeGodBot.ConsoleApp.Services
         {
             try
             {
-                _logger.LogInformation("Формирую кнопки для пользователя {Id}", message.Chat.Id);
-
-                var keyboard = new ReplyKeyboardMarkup(new[]
-                {
-                    new[] { new KeyboardButton("🎲 Дай мем") },
-                    new[] { new KeyboardButton("📊 Статистика") }
-                })
-                {
-                    ResizeKeyboard = true
-                };
-
+                var keyboard = CreateMainMenuKeyboard();
                 await bot.SendMessage(
                     chatId: message.Chat.Id,
                     text: "Привет! Я нейро-мемный бот. Жми на кнопку, а я подберу мем!",
@@ -59,13 +46,9 @@ namespace MemeGodBot.ConsoleApp.Services
             {
                 var (memeId, path) = await _memeManager.GetRecommendationAsync(chatId);
 
-                if (string.IsNullOrEmpty(path) || memeId == 0)
+                if (!IsValidMeme(memeId, path))
                 {
-                    await bot.SendMessage(
-                        chatId: chatId,
-                        text: "😔 Похоже, ты посмотрел все мемы, которые у меня были! \n\nПопробуй зайти позже или подожди, пока я просканирую новые каналы.",
-                        cancellationToken: ct
-                    );
+                    await SendNoMemesMessageAsync(bot, chatId, ct);
                     return;
                 }
 
@@ -75,28 +58,70 @@ namespace MemeGodBot.ConsoleApp.Services
                     return;
                 }
 
-                var inlineKeyboard = new InlineKeyboardMarkup(new[]
-                {
-                    new[]
-                    {
-                        InlineKeyboardButton.WithCallbackData("🔥 Годно", $"like:{memeId}"),
-                        InlineKeyboardButton.WithCallbackData("💩 Баян", $"dislike:{memeId}")
-                    }
-                });
-
-                using var stream = File.OpenRead(path);
-                await bot.SendPhoto(
-                    chatId: chatId,
-                    photo: InputFile.FromStream(stream),
-                    replyMarkup: inlineKeyboard,
-                    cancellationToken: ct
-                );
+                await SendMemePhotoAsync(bot, chatId, path, memeId, ct);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка при выдаче мема");
+                _logger.LogError(ex, "Ошибка при получении мема");
                 await bot.SendMessage(chatId, "Произошла ошибка при поиске мема. Попробуй позже.", cancellationToken: ct);
             }
+        }
+
+        private bool IsValidMeme(ulong memeId, string path)
+        {
+            return memeId != 0 && !string.IsNullOrEmpty(path);
+        }
+
+        private async Task SendNoMemesMessageAsync(ITelegramBotClient bot, long chatId, CancellationToken ct)
+        {
+            await bot.SendMessage(
+                chatId: chatId,
+                text: "😔 Похоже, ты посмотрел все мемы! \n\nПопробуй зайти позже.",
+                cancellationToken: ct
+            );
+        }
+
+        private async Task SendMemePhotoAsync(ITelegramBotClient bot, long chatId, string path, ulong memeId, CancellationToken ct)
+        {
+            var keyboard = CreateReactionKeyboard(memeId);
+
+            using var stream = File.OpenRead(path);
+            await bot.SendPhoto(
+                chatId: chatId,
+                photo: InputFile.FromStream(stream),
+                replyMarkup: keyboard,
+                cancellationToken: ct
+            );
+        }
+
+        private (string Action, ulong MemeId) ParseCallbackData(string data)
+        {
+            var parts = data.Split(':');
+            return (parts[0], ulong.Parse(parts[1]));
+        }
+
+        private ReplyKeyboardMarkup CreateMainMenuKeyboard()
+        {
+            return new ReplyKeyboardMarkup(new[]
+            {
+                new[] { new KeyboardButton(BotConstants.Buttons.GetMeme) },
+                new[] { new KeyboardButton(BotConstants.Buttons.Stats) }
+            })
+            {
+                ResizeKeyboard = true
+            };
+        }
+
+        private InlineKeyboardMarkup CreateReactionKeyboard(ulong memeId)
+        {
+            return new InlineKeyboardMarkup(new[]
+            {
+                new[]
+                {
+                    InlineKeyboardButton.WithCallbackData(BotConstants.Buttons.Like, $"{BotConstants.Callbacks.Like}:{memeId}"),
+                    InlineKeyboardButton.WithCallbackData(BotConstants.Buttons.Dislike, $"{BotConstants.Callbacks.Dislike}:{memeId}")
+                }
+            });
         }
 
         public async Task OnReactionAsync(ITelegramBotClient bot, CallbackQuery callback, CancellationToken ct)
@@ -104,36 +129,28 @@ namespace MemeGodBot.ConsoleApp.Services
             if (callback.Data == null || callback.Message == null)
                 return;
 
-            var parts = callback.Data.Split(':');
-            var action = parts[0];
-            var memeId = ulong.Parse(parts[1]);
-            var userId = callback.Message.Chat.Id;
-            var isLiked = action == "like";
-            var existing = await _db.Reactions.FirstOrDefaultAsync(r => r.UserId == userId && r.QdrantMemeId == (long)memeId, ct);
-            
-            if (existing != null)
-                existing.IsLiked = isLiked;
-            else
+            try
             {
-                _db.Reactions.Add(new UserMemeReaction
-                {
-                    UserId = userId,
-                    QdrantMemeId = (long)memeId,
-                    IsLiked = isLiked
-                });
-            }
+                var (action, memeId) = ParseCallbackData(callback.Data);
+                var userId = callback.Message.Chat.Id;
+                var isLiked = action == BotConstants.Callbacks.Like;
 
-            await _db.SaveChangesAsync(ct);
-            await bot.AnswerCallbackQuery(callback.Id, $"Принято: {(isLiked ? "🔥" : "💩")}", cancellationToken: ct);
-            await bot.EditMessageReplyMarkup(userId, callback.Message.MessageId, replyMarkup: null, cancellationToken: ct);
+                await _reactionService.AddReactionAsync(userId, memeId, isLiked, ct);
+
+                await bot.AnswerCallbackQuery(callback.Id, $"Принято: {(isLiked ? "🔥" : "💩")}", cancellationToken: ct);
+                await bot.EditMessageReplyMarkup(userId, callback.Message.MessageId, replyMarkup: null, cancellationToken: ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error reaction");
+            }
         }
 
         public async Task OnStatsAsync(ITelegramBotClient bot, long chatId, CancellationToken ct)
         {
-            var likes = await _db.Reactions.CountAsync(r => r.UserId == chatId && r.IsLiked, ct);
-            var dislikes = await _db.Reactions.CountAsync(r => r.UserId == chatId && !r.IsLiked, ct);
+            var (likes, dislikes) = await _reactionService.GetUserStatsAsync(chatId, ct);
 
-            await bot.SendMessage(chatId, $"Твоя статистика:\n🔥 Лайков: {likes}\n💩 Дизлайков: {dislikes}\nЧем больше ты оцениваешь, тем точнее я подбираю мемы!", cancellationToken: ct);
+            await bot.SendMessage(chatId, $"Статистика: {likes} / {dislikes}", cancellationToken: ct);
         }
     }
 }

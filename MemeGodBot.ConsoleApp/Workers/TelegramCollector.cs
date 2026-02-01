@@ -88,6 +88,7 @@ public class TelegramCollector : BackgroundService
                         SourceId = photo.id.ToString(),
                         SourceType = MemeSource.Telegram,
                         ChannelId = message.Peer.ID.ToString(),
+                        FileExtension = ".jpg",
                         DownloadAction = async (stream) => await _client!.DownloadFileAsync(photo, stream)
                     };
 

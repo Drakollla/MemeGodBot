@@ -6,7 +6,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
-using System.Net.Http.Headers;
 using System.ServiceModel.Syndication;
 using System.Text.RegularExpressions;
 using System.Xml;
@@ -16,7 +15,7 @@ namespace MemeGodBot.ConsoleApp.Workers
     public class RedditCollector : BackgroundService
     {
         private readonly ILogger<RedditCollector> _logger;
-        private readonly RedditSettings _settings;
+        private readonly RedditSettings _redditSettings;
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly IHttpClientFactory _httpClientFactory;
 
@@ -26,7 +25,7 @@ namespace MemeGodBot.ConsoleApp.Workers
                                IHttpClientFactory httpClientFactory)
         {
             _logger = logger;
-            _settings = options.Value;
+            _redditSettings = options.Value;
             _scopeFactory = scopeFactory;
             _httpClientFactory = httpClientFactory;
         }
@@ -37,17 +36,17 @@ namespace MemeGodBot.ConsoleApp.Workers
 
             while (!stoppingToken.IsCancellationRequested)
             {
-                foreach (var sub in _settings.TargetSubreddits)
+                foreach (var sub in _redditSettings.TargetSubreddits)
                 {
-                    if (stoppingToken.IsCancellationRequested) 
+                    if (stoppingToken.IsCancellationRequested)
                         break;
-                    
+
                     await ProcessSubredditAsync(sub, stoppingToken);
                 }
 
-                _logger.LogInformation("Reddit-парсинг завершен. Сон на {N} минут...", _settings.RefreshIntervalMinutes);
-                
-                await Task.Delay(TimeSpan.FromMinutes(_settings.RefreshIntervalMinutes), stoppingToken);
+                _logger.LogInformation("Reddit-парсинг завершен. Сон на {N} минут...", _redditSettings.RefreshIntervalMinutes);
+
+                await Task.Delay(TimeSpan.FromMinutes(_redditSettings.RefreshIntervalMinutes), stoppingToken);
             }
         }
 
@@ -56,16 +55,13 @@ namespace MemeGodBot.ConsoleApp.Workers
             try
             {
                 var url = $"https://www.reddit.com/r/{subName}/hot/.rss?limit=20";
-
-                var client = _httpClientFactory.CreateClient();
-                client.DefaultRequestHeaders.UserAgent.ParseAdd(_settings.UserAgent);
-                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/xml"));
+                var client = _httpClientFactory.CreateClient("RedditClient");
 
                 using var stream = await client.GetStreamAsync(url, ct);
                 using var xmlReader = XmlReader.Create(stream);
                 var feed = SyndicationFeed.Load(xmlReader);
 
-                if (feed == null) 
+                if (feed == null)
                     return;
 
                 using var scope = _scopeFactory.CreateScope();
@@ -74,7 +70,7 @@ namespace MemeGodBot.ConsoleApp.Workers
                 foreach (var item in feed.Items)
                 {
                     var imageUrl = ExtractImageUrl(item);
-                    
+
                     if (string.IsNullOrEmpty(imageUrl))
                         continue;
 
@@ -87,8 +83,8 @@ namespace MemeGodBot.ConsoleApp.Workers
 
                         DownloadAction = async (fileStream) =>
                         {
-                            var bytes = await client.GetByteArrayAsync(imageUrl, ct);
-                            await fileStream.WriteAsync(bytes, ct);
+                            using var networkStream = await client.GetStreamAsync(imageUrl, ct);
+                            await networkStream.CopyToAsync(fileStream, ct);
                         }
                     };
 

@@ -1,4 +1,5 @@
 ﻿using MemeGodBot.ConsoleApp.Configurations;
+using MemeGodBot.ConsoleApp.Helpers;
 using MemeGodBot.ConsoleApp.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -61,11 +62,11 @@ namespace MemeGodBot.ConsoleApp.Workers
 
                 if (update.Message is { } message && message.Text is { } text)
                 {
-                    if (text.StartsWith("/start"))
+                    if (text.StartsWith(BotConstants.Commands.Start))
                         await botLogic.OnStartAsync(client, message, ct);
-                    else if (text == "🎲 Дай мем")
+                    else if (text == BotConstants.Buttons.GetMeme)
                         await botLogic.OnGetMemeAsync(client, message.Chat.Id, ct);
-                    else if (text == "📊 Статистика")
+                    else if (text == BotConstants.Buttons.Stats)
                         await botLogic.OnStatsAsync(client, message.Chat.Id, ct);
                 }
             }
