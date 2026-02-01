@@ -12,13 +12,15 @@ namespace MemeGodBot.ConsoleApp.Services
 {
     public class MemeManager : IMemeManager
     {
-        private readonly MemeDbContext _db;      
-        private readonly QdrantClient _qdrant;   
+        private readonly MemeDbContext _db;
+        private readonly QdrantClient _qdrant;
         private readonly IImageEncoder _encoder;
         private readonly ILogger<MemeManager> _logger;
-        private readonly QdrantSettings _settings;
+        private readonly QdrantSettings _qdrantSettings;
         private readonly string _baseDownloadPath;
         private readonly RecommendationSettings _recSettings;
+
+        private const float DuplicateThreshold = 0.98f;
 
         public MemeManager(MemeDbContext db,
                            QdrantClient qdrant,
@@ -31,7 +33,7 @@ namespace MemeGodBot.ConsoleApp.Services
             _db = db;
             _qdrant = qdrant;
             _encoder = encoder;
-            _settings = qdrantOptions.Value;
+            _qdrantSettings = qdrantOptions.Value;
             _logger = logger;
             _recSettings = recOptions.Value;
             _baseDownloadPath = Path.GetFullPath(storageOptions.Value.MemesFolder);
@@ -43,88 +45,133 @@ namespace MemeGodBot.ConsoleApp.Services
         public async Task ProcessIncomingMemeAsync(IncomingMeme meme, CancellationToken ct)
         {
             if (await _db.Reactions.AnyAsync(r => r.QdrantMemeId == (long)meme.SourceId.GetHashCode(), ct))
-            {
-                _logger.LogInformation("Мем с SourceId {Id} уже обрабатывался.", meme.SourceId);
                 return;
-            }
 
             var localPath = await DownloadMemeAsync(meme);
-            
-            if (localPath == null) 
+
+            if (localPath == null)
                 return;
 
             try
             {
                 var vector = _encoder.GenerateEmbedding(localPath);
-                var duplicates = await _qdrant.SearchAsync("memes", vector, limit: 1);
-                
-                if (duplicates.Any() && duplicates[0].Score > 0.98f)
+
+                if (await IsVisualDuplicateAsync(vector))
                 {
-                    _logger.LogInformation("Обнаружен визуальный дубликат ({Score}). Удаляю файл.", duplicates[0].Score);
                     File.Delete(localPath);
                     return;
                 }
 
-                ulong qdrantId = (ulong)meme.SourceId.GetHashCode();
-                
-                await _qdrant.UpsertAsync(_settings.CollectionName, new[]
-                {
-                    new PointStruct
-                    {
-                        Id = qdrantId,
-                        Vectors = vector,
-                        Payload = {
-                            ["path"] = localPath,
-                            ["source_type"] = meme.SourceType.ToString(),
-                            ["channel_id"] = meme.ChannelId ?? "unknown"
-                        }
-                    }
-                });
-
-                _logger.LogInformation("Мем успешно проиндексирован. ID: {Id}", qdrantId);
+                await IndexMemeInQdrantAsync(meme, vector, localPath);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка при обработке мема {Id}", meme.SourceId);
+                _logger.LogError(ex, "Error processing meme {Id}", meme.SourceId);
+
+                if (File.Exists(localPath))
+                    File.Delete(localPath);
             }
+        }
+
+        private async Task<bool> IsVisualDuplicateAsync(float[] vector)
+        {
+            var duplicates = await _qdrant.SearchAsync(_qdrantSettings.CollectionName, vector, limit: 1);
+
+            if (duplicates.Any() && duplicates[0].Score > DuplicateThreshold)
+                return true;
+
+            return false;
+        }
+
+        private async Task IndexMemeInQdrantAsync(IncomingMeme meme, float[] vector, string localPath)
+        {
+            ulong qdrantId = (ulong)meme.SourceId.GetHashCode();
+
+            var point = new PointStruct
+            {
+                Id = qdrantId,
+                Vectors = vector,
+                Payload = {
+                    ["path"] = localPath,
+                    ["source_type"] = meme.SourceType.ToString(),
+                    ["channel_id"] = meme.ChannelId ?? "unknown"
+                }
+            };
+
+            await _qdrant.UpsertAsync(_qdrantSettings.CollectionName, new[] { point });
         }
 
         public async Task<(ulong Id, string Path)> GetRecommendationAsync(long userId)
         {
+            var (likes, dislikes, seenIds) = await GetUserPreferencesAsync(userId);
+            var filter = CreateSeenFilter(seenIds);
+
+            if (ShouldUseRandomStrategy(userId, likes.Count))
+                return await GetRandomMeme(filter);
+
+            var recommendation = await GetVectorRecommendationAsync(likes, dislikes, filter, userId);
+
+            return recommendation ?? await GetRandomMeme(filter);
+        }
+
+        private async Task<(List<PointId> Likes, List<PointId> Dislikes, List<PointId> Seen)> GetUserPreferencesAsync(long userId)
+        {
             var reactions = await _db.Reactions
                 .AsNoTracking()
                 .Where(r => r.UserId == userId)
+                .Select(r => new { r.IsLiked, r.QdrantMemeId })
                 .ToListAsync();
 
-            var likes = reactions.Where(r => r.IsLiked).Select(r => (PointId)(ulong)r.QdrantMemeId).ToList();
-            var dislikes = reactions.Where(r => !r.IsLiked).Select(r => (PointId)(ulong)r.QdrantMemeId).ToList();
-            var seenPointIds = reactions.Select(r => (PointId)(ulong)r.QdrantMemeId).ToList();
+            var likes = new List<PointId>();
+            var dislikes = new List<PointId>();
+            var seen = new List<PointId>();
 
-            Filter? filter = null;
-            if (seenPointIds.Any())
+            foreach (var r in reactions)
             {
-                filter = new Filter();
-                var hasIdCondition = new HasIdCondition();
-                hasIdCondition.HasId.AddRange(seenPointIds);
+                var pointId = (PointId)(ulong)r.QdrantMemeId;
+                seen.Add(pointId);
 
-                filter.MustNot.Add(new Condition { HasId = hasIdCondition });
+                if (r.IsLiked)
+                    likes.Add(pointId);
+                else
+                    dislikes.Add(pointId);
             }
 
-            if (likes.Count < _recSettings.MinLikesToStart)
-            {
-                _logger.LogInformation("User {Id} has few likes. Giving random.", userId);
-                return await GetRandomMeme(filter);
-            }
+            return (likes, dislikes, seen);
+        }
+
+        private Filter? CreateSeenFilter(List<PointId> seenIds)
+        {
+            if (!seenIds.Any())
+                return null;
+
+            var filter = new Filter();
+            var hasIdCondition = new HasIdCondition();
+            hasIdCondition.HasId.AddRange(seenIds);
+
+            filter.MustNot.Add(new Condition { HasId = hasIdCondition });
+            return filter;
+        }
+
+        private bool ShouldUseRandomStrategy(long userId, int likesCount)
+        {
+            if (likesCount < _recSettings.MinLikesToStart)
+                return true;
 
             if (Random.Shared.Next(1, 101) <= _recSettings.RandomFactorPercent)
-            {
-                _logger.LogInformation("Exploration mode: giving random meme to user {Id}.", userId);
-                return await GetRandomMeme(filter);
-            }
+                return true;
 
-            _logger.LogInformation("Exploitation mode: calculating vector recommendation for {Id}.", userId);
+            return false;
+        }
+
+        private async Task<(ulong Id, string Path)?> GetVectorRecommendationAsync(
+            List<PointId> likes,
+            List<PointId> dislikes,
+            Filter? filter,
+            long userId)
+        {
             var recs = await _qdrant.RecommendAsync(
-                _settings.CollectionName,
+                _qdrantSettings.CollectionName,
                 positive: likes,
                 negative: dislikes,
                 filter: filter,
@@ -137,7 +184,7 @@ namespace MemeGodBot.ConsoleApp.Services
                 return (result.Id.Num, result.Payload["path"].StringValue);
             }
 
-            return await GetRandomMeme(filter);
+            return null;
         }
 
         private async Task<string?> DownloadMemeAsync(IncomingMeme meme)
@@ -158,20 +205,20 @@ namespace MemeGodBot.ConsoleApp.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка скачивания мема {SourceId}", meme.SourceId);
+                _logger.LogError(ex, "Error downloading meme {SourceId}", meme.SourceId);
                 return null;
             }
         }
 
         private async Task<(ulong Id, string Path)> GetRandomMeme(Filter? filter)
         {
-            var scroll = await _qdrant.ScrollAsync(_settings.CollectionName, limit: 50, filter: filter);
-            
-            if (scroll.Result == null || !scroll.Result.Any()) 
+            var scroll = await _qdrant.ScrollAsync(_qdrantSettings.CollectionName, limit: 50, filter: filter);
+
+            if (scroll.Result == null || !scroll.Result.Any())
                 return (0, "");
 
             var randomMeme = scroll.Result.OrderBy(_ => Guid.NewGuid()).First();
-            
+
             return (randomMeme.Id.Num, randomMeme.Payload["path"].StringValue);
         }
     }
