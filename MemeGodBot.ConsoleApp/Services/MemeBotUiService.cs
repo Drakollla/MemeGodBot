@@ -29,14 +29,14 @@ namespace MemeGodBot.ConsoleApp.Services
                 var keyboard = CreateMainMenuKeyboard();
                 await bot.SendMessage(
                     chatId: message.Chat.Id,
-                    text: "Привет! Я нейро-мемный бот. Жми на кнопку, а я подберу мем!",
+                    text: BotConstants.Messages.Welcome,
                     replyMarkup: keyboard,
                     cancellationToken: ct
                 );
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка в OnStartAsync");
+                _logger.LogError(ex, "Error in OnStartAsync");
             }
         }
 
@@ -54,7 +54,7 @@ namespace MemeGodBot.ConsoleApp.Services
 
                 if (!File.Exists(path))
                 {
-                    await bot.SendMessage(chatId, "Мем был удален из хранилища. Попробуй еще раз!", cancellationToken: ct);
+                    await bot.SendMessage(chatId, BotConstants.Messages.MemeDeleted, cancellationToken: ct);
                     return;
                 }
 
@@ -62,21 +62,18 @@ namespace MemeGodBot.ConsoleApp.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка при получении мема");
-                await bot.SendMessage(chatId, "Произошла ошибка при поиске мема. Попробуй позже.", cancellationToken: ct);
+                _logger.LogError(ex, "Error getting meme");
+                await bot.SendMessage(chatId, BotConstants.Messages.Error, cancellationToken: ct);
             }
         }
 
-        private bool IsValidMeme(ulong memeId, string path)
-        {
-            return memeId != 0 && !string.IsNullOrEmpty(path);
-        }
+        private bool IsValidMeme(ulong memeId, string path) =>
+            memeId != 0 && !string.IsNullOrEmpty(path);
 
         private async Task SendNoMemesMessageAsync(ITelegramBotClient bot, long chatId, CancellationToken ct)
         {
-            await bot.SendMessage(
-                chatId: chatId,
-                text: "😔 Похоже, ты посмотрел все мемы! \n\nПопробуй зайти позже.",
+            await bot.SendMessage(chatId: chatId,
+                text: BotConstants.Messages.NoMemes,
                 cancellationToken: ct
             );
         }

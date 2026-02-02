@@ -42,7 +42,7 @@ namespace MemeGodBot.ConsoleApp.Workers
                 cancellationToken: stoppingToken);
 
             var me = await _botClient.GetMe(stoppingToken);
-            _logger.LogInformation("Бот-интерфейс запущен: {BotName}", me.FirstName);
+            _logger.LogInformation("Bot interface launched: {BotName}", me.FirstName);
 
             await Task.Delay(-1, stoppingToken);
         }
@@ -72,13 +72,13 @@ namespace MemeGodBot.ConsoleApp.Workers
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка в боте");
+                _logger.LogError(ex, "Error in bot");
             }
         }
 
         private Task HandleErrorAsync(ITelegramBotClient bot, Exception ex, HandleErrorSource source, CancellationToken ct)
         {
-            _logger.LogError(ex, "Ошибка Telegram Bot API");
+            _logger.LogError(ex, "Telegram Bot API Error");
             return Task.CompletedTask;
         }
     }

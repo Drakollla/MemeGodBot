@@ -32,7 +32,7 @@ namespace MemeGodBot.ConsoleApp.Workers
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            _logger.LogInformation("Запуск Reddit Collector (RSS)...");
+            _logger.LogInformation("Starting Reddit Collector (RSS)...");
 
             while (!stoppingToken.IsCancellationRequested)
             {
@@ -44,7 +44,7 @@ namespace MemeGodBot.ConsoleApp.Workers
                     await ProcessSubredditAsync(sub, stoppingToken);
                 }
 
-                _logger.LogInformation("Reddit-парсинг завершен. Сон на {N} минут...", _redditSettings.RefreshIntervalMinutes);
+                _logger.LogInformation("Reddit parsing completed. Sleeping for {N} minutes...", _redditSettings.RefreshIntervalMinutes);
 
                 await Task.Delay(TimeSpan.FromMinutes(_redditSettings.RefreshIntervalMinutes), stoppingToken);
             }

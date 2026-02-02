@@ -32,15 +32,15 @@ public class TelegramCollector : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("Запуск Telegram Collector...");
+        _logger.LogInformation("Starting Telegram Collector...");
 
         _client = new Client(what => what switch
         {
             "api_id" => _settings.ApiId.ToString(),
             "api_hash" => _settings.ApiHash,
             "phone_number" => _settings.PhoneNumber,
-            "verification_code" => ReadInput("Введите код для Telegram: "),
-            "password" => ReadInput("Введите пароль 2FA: "),
+            "verification_code" => ReadInput("Enter the code for Telegram: "),
+            "password" => ReadInput("Enter the 2FA password: "),
             _ => null
         });
 
@@ -51,7 +51,7 @@ public class TelegramCollector : BackgroundService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Ошибка входа в WTelegram");
+            _logger.LogError(ex, "Error logging into WTelegram");
             return;
         }
 
@@ -65,7 +65,7 @@ public class TelegramCollector : BackgroundService
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Ошибка при обработке обновления");
+                _logger.LogError(ex, "Error processing update");
             }
         }
     }
@@ -80,13 +80,13 @@ public class TelegramCollector : BackgroundService
             if (update is UpdateNewMessage unm && unm.message is Message message)
             {
                 var currentPeerId = message.Peer.ID.ToString();
-                
+
                 if (_settings.TargetChannels.Any() && !_settings.TargetChannels.Contains(currentPeerId))
                     continue;
 
                 if (message.media is MessageMediaPhoto { photo: Photo photo })
                 {
-                    _logger.LogInformation("Обнаружен мем {Id} в канале {Peer}", photo.id, message.Peer.ID);
+                    _logger.LogInformation("Meme {Id} found in channel {Peer}", photo.id, message.Peer.ID);
 
                     var candidate = new IncomingMeme
                     {
