@@ -45,6 +45,14 @@ Create your configuration file based on the template below:
   "ConnectionStrings": {
     "DefaultConnection": "Server=(localdb)\\mssqllocaldb;Database=MemeSageDb;Trusted_Connection=True;"
   },
+ "Qdrant": {
+   "Host": "localhost",
+   "Port": 6334,
+   "CollectionName": "memes"
+ },
+ "Models": {
+   "ClipPath": "LLMModels/vision_model.onnx"
+ },
   "Telegram": {
     "ApiId": "YOUR_API_ID",
     "ApiHash": "YOUR_API_HASH",
