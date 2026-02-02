@@ -79,6 +79,11 @@ public class TelegramCollector : BackgroundService
         {
             if (update is UpdateNewMessage unm && unm.message is Message message)
             {
+                var currentPeerId = message.Peer.ID.ToString();
+                
+                if (_settings.TargetChannels.Any() && !_settings.TargetChannels.Contains(currentPeerId))
+                    continue;
+
                 if (message.media is MessageMediaPhoto { photo: Photo photo })
                 {
                     _logger.LogInformation("Обнаружен мем {Id} в канале {Peer}", photo.id, message.Peer.ID);

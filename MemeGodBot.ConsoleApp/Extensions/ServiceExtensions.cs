@@ -64,7 +64,7 @@ namespace MemeGodBot.ConsoleApp.Extensions
                 client.DefaultRequestHeaders.UserAgent.ParseAdd(settings.UserAgent);
                 client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/xml"));
                 client.Timeout = TimeSpan.FromSeconds(30);
-            });
+            }).AddStandardResilienceHandler();
 
             return services;
         }

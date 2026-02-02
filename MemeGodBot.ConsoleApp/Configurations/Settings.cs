@@ -5,6 +5,7 @@
         public int ApiId { get; set; }
         public string ApiHash { get; set; } = string.Empty;
         public string PhoneNumber { get; set; } = string.Empty;
+        public List<string> TargetChannels { get; set; } = new();
     }
 
     public class QdrantSettings
@@ -17,7 +18,6 @@
     public class BotSettings
     {
         public string Token { get; set; } = string.Empty;
-        public long ArchiveChannelId { get; set; }
     }
 
     public class ModelSettings
