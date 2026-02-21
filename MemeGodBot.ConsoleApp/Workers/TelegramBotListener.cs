@@ -68,6 +68,8 @@ namespace MemeGodBot.ConsoleApp.Workers
                         await botLogic.OnGetMemeAsync(client, message.Chat.Id, ct);
                     else if (text == BotConstants.Buttons.Stats)
                         await botLogic.OnStatsAsync(client, message.Chat.Id, ct);
+                    else if (!string.IsNullOrEmpty(message.Text) && !message.Text.StartsWith("/"))
+                        await botLogic.OnSearchMemeAsync(client, message, ct);
                 }
             }
             catch (Exception ex)

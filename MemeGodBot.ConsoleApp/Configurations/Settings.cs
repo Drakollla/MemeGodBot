@@ -23,6 +23,9 @@
     public class ModelSettings
     {
         public string ClipPath { get; set; } = string.Empty;
+        public string TextModelPath { get; set; }
+        public string VocabPath { get; set; }
+        public string MergesPath { get; set; }
     }
     public class StorageSettings
     {

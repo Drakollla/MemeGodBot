@@ -1,5 +1,6 @@
 ﻿using MemeGodBot.ConsoleApp.Abstractions;
 using MemeGodBot.ConsoleApp.Configurations;
+using MemeGodBot.ConsoleApp.Helpers;
 using MemeGodBot.ConsoleApp.Models.Context;
 using MemeGodBot.ConsoleApp.Services;
 using MemeGodBot.ConsoleApp.Workers;
@@ -51,6 +52,17 @@ namespace MemeGodBot.ConsoleApp.Extensions
                 return new ImageEncoder(settings.ClipPath);
             });
 
+            services.AddSingleton<ITextEncoder>(sp =>
+            {
+                var settings = sp.GetRequiredService<IOptions<ModelSettings>>().Value;
+
+                return new ClipTextProcessor(
+                    settings.TextModelPath,
+                    settings.VocabPath,
+                    settings.MergesPath
+                );
+            });
+
             services.AddSingleton(sp =>
             {
                 var settings = sp.GetRequiredService<IOptions<QdrantSettings>>().Value;
@@ -84,6 +96,7 @@ namespace MemeGodBot.ConsoleApp.Extensions
             services.AddHostedService<RedditCollector>();
             services.AddHostedService<TelegramCollector>();
             services.AddHostedService<TelegramBotListener>();
+
             return services;
         }
     }

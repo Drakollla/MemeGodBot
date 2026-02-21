@@ -15,6 +15,7 @@ namespace MemeGodBot.ConsoleApp.Services
         private readonly MemeDbContext _db;
         private readonly QdrantClient _qdrant;
         private readonly IImageEncoder _encoder;
+        private readonly ITextEncoder _textEncoder;
         private readonly ILogger<MemeManager> _logger;
         private readonly QdrantSettings _qdrantSettings;
         private readonly string _baseDownloadPath;
@@ -26,6 +27,7 @@ namespace MemeGodBot.ConsoleApp.Services
                            QdrantClient qdrant,
                            ILogger<MemeManager> logger,
                            IImageEncoder encoder,
+                           ITextEncoder textEncoder,
                            IOptions<QdrantSettings> qdrantOptions,
                            IOptions<RecommendationSettings> recOptions,
                            IOptions<StorageSettings> storageOptions)
@@ -33,6 +35,7 @@ namespace MemeGodBot.ConsoleApp.Services
             _db = db;
             _qdrant = qdrant;
             _encoder = encoder;
+            _textEncoder = textEncoder;
             _qdrantSettings = qdrantOptions.Value;
             _logger = logger;
             _recSettings = recOptions.Value;
@@ -220,6 +223,38 @@ namespace MemeGodBot.ConsoleApp.Services
             var randomMeme = scroll.Result.OrderBy(_ => Guid.NewGuid()).First();
 
             return (randomMeme.Id.Num, randomMeme.Payload["path"].StringValue);
+        }
+
+        public async Task<List<string>> SearchMemesByTextAsync(string text, int limit = 5)
+        {
+            try
+            {
+                var vector = _textEncoder.GetTextEmbedding(text);
+                var results = await _qdrant.SearchAsync(
+                    collectionName: _qdrantSettings.CollectionName,
+                    vector: vector,
+                    limit: (ulong)limit);
+
+                var paths = new List<string>();
+
+                foreach (var point in results)
+                {
+                    if (point.Payload.TryGetValue("path", out var pathVal))
+                    {
+                        var path = pathVal.StringValue;
+
+                        if (File.Exists(path))
+                            paths.Add(path);
+                    }
+                }
+
+                return paths;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error searching meme by text: {Text}", text);
+                return new List<string>();
+            }
         }
     }
 }

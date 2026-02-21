@@ -97,6 +97,40 @@ namespace MemeGodBot.ConsoleApp.Services
             return (parts[0], ulong.Parse(parts[1]));
         }
 
+        public async Task OnSearchMemeAsync(ITelegramBotClient bot, Message message, CancellationToken ct)
+        {
+            var chatId = message.Chat.Id;
+            var query = message.Text;
+
+            if (string.IsNullOrWhiteSpace(query))
+            {
+                await bot.SendMessage(chatId, "Напиши текст для поиска, например: 'кот в сапогах'", cancellationToken: ct);
+                return;
+            }
+
+            await bot.SendChatAction(chatId, Telegram.Bot.Types.Enums.ChatAction.UploadPhoto, cancellationToken: ct);
+
+            var paths = await _memeManager.SearchMemesByTextAsync(query, limit: 3);
+
+            if (!paths.Any())
+            {
+                await bot.SendMessage(chatId, "Ничего похожего не нашел...", cancellationToken: ct);
+                return;
+            }
+
+            var bestMemePath = paths.First();
+            using var stream = File.OpenRead(bestMemePath);
+
+            await bot.SendMessage(chatId, $"Вот что нашел по запросу: \"{query}\"", cancellationToken: ct);
+
+            await bot.SendPhoto(
+                chatId: chatId,
+                photo: InputFile.FromStream(stream),
+                caption: "Похоже?",
+                cancellationToken: ct
+            );
+        }
+
         private ReplyKeyboardMarkup CreateMainMenuKeyboard()
         {
             return new ReplyKeyboardMarkup(new[]

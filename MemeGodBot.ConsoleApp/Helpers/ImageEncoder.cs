@@ -5,7 +5,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 
-namespace MemeGodBot.ConsoleApp.Services
+namespace MemeGodBot.ConsoleApp.Helpers
 {
     public class ImageEncoder : IImageEncoder, IDisposable
     {

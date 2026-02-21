@@ -6,5 +6,6 @@ namespace MemeGodBot.ConsoleApp.Abstractions
     {
         Task ProcessIncomingMemeAsync(IncomingMeme meme, CancellationToken ct);
         Task<(ulong Id, string Path)> GetRecommendationAsync(long userId);
+        Task<List<string>> SearchMemesByTextAsync(string text, int limit = 5);
     }
 }
