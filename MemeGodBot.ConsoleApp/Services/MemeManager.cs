@@ -1,4 +1,5 @@
-﻿using MemeGodBot.ConsoleApp.Abstractions;
+﻿using GTranslate.Translators;
+using MemeGodBot.ConsoleApp.Abstractions;
 using MemeGodBot.ConsoleApp.Configurations;
 using MemeGodBot.ConsoleApp.Models.Context;
 using MemeGodBot.ConsoleApp.Models.DTOs;
@@ -22,6 +23,7 @@ namespace MemeGodBot.ConsoleApp.Services
         private readonly RecommendationSettings _recSettings;
 
         private const float DuplicateThreshold = 0.98f;
+        private readonly GoogleTranslator _translator = new GoogleTranslator();
 
         public MemeManager(MemeDbContext db,
                            QdrantClient qdrant,
@@ -225,15 +227,26 @@ namespace MemeGodBot.ConsoleApp.Services
             return (randomMeme.Id.Num, randomMeme.Payload["path"].StringValue);
         }
 
-        public async Task<List<string>> SearchMemesByTextAsync(string text, int limit = 5)
+        public async Task<List<string>> SearchMemesByTextAsync(string text, int limit = 1)
         {
+            string englishQuery = text;
+
             try
             {
-                var vector = _textEncoder.GetTextEmbedding(text);
+                var result = await _translator.TranslateAsync(text, "en");
+                englishQuery = result.Translation;
+                var vector = _textEncoder.GetTextEmbedding(englishQuery);
                 var results = await _qdrant.SearchAsync(
                     collectionName: _qdrantSettings.CollectionName,
                     vector: vector,
                     limit: (ulong)limit);
+
+                var goodResults = results.Where(r => r.Score > 0.19).ToList();
+
+                if (!goodResults.Any())
+                    return new List<string>();
+
+                var random = Random.Shared;
 
                 var paths = new List<string>();
 
